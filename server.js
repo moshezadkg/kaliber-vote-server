@@ -42,7 +42,7 @@ let currentRound = 1;
 
 function getScreenTitle() {
     if (currentStage === 'houses') {
-        return `שלב האודישן • סיבוב ${currentRound} מתוך ${TOTAL_HOUSE_ROUNDS}`;
+        return 'שלב האודישן';
     }
     return STAGE_TITLES[currentStage];
 }
