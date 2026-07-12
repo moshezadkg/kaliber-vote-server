@@ -262,12 +262,12 @@ io.on('connection', (socket) => {
         roundHistory.push({ stage: 'houses', round, results });
         io.emit('round_results', { stage: 'houses', round, results });
 
-        // הכרזה דרמטית על מסך הקהל
+        // הכרזה דרמטית על מסך הקהל - שם העולה בלבד, ללא חשיפת ניקוד/תוצאות
         if (results.length > 0) {
             io.emit('screen_announcement', {
                 title: 'העולה לחצי הגמר',
                 name: results[0].name,
-                subtitle: `סיבוב ${round} • ${results[0].finalScore} נקודות`
+                subtitle: `סיבוב ${round}`
             });
         }
         broadcastContestants();
@@ -302,7 +302,7 @@ io.on('connection', (socket) => {
         io.emit('screen_announcement', {
             title: 'גלגל ההצלה - חוזר לבמה!',
             name: winner.name,
-            subtitle: `${bestScore} נקודות - הניקוד הגבוה ביותר מבין הנופלים`
+            subtitle: 'העולה השישי לחצי הגמר'
         });
         broadcastContestants();
     });
@@ -394,6 +394,11 @@ io.on('connection', (socket) => {
         if (data.phone) {
             votersList[data.phone] = { name: data.name, group: data.group };
         }
+    });
+
+    // חיווי חי של הצבעת השופטים למסך הקהל - כמה שופטים כבר הזין המנחה (בלי לחשוף את הבחירה)
+    socket.on('admin_judge_progress', (data) => {
+        io.emit('screen_judge_progress', { count: Number(data.count) || 0, total: Number(data.total) || 4 });
     });
 
     // שליטה בטיימר ספירה לאחור (60 שניות בבתים, 2 דקות בחצי הגמר)
