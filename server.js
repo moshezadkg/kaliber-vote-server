@@ -18,14 +18,24 @@ const io = new Server(server, {
 
 // נתיב קבלת הנתונים ממודול ה-API של ימות המשיח
 app.get('/api/yemot', (req, res) => {
-    const callData = req.query; // כל הפרמטרים שימות המשיח שולחים (מזהה טלפון, מקש שהוקש וכו')
+    const callData = req.query; 
     
-    console.log('New vote received:', callData);
+    // 1. חסימת דיווח כפול: התעלמות מקריאות שנשלחות אוטומטית בניתוק שיחה
+    if (callData.hangup === 'yes') {
+        return res.send('');
+    }
 
-    // שידור הנתונים מיד ל-WebSocket כדי שהמסך באולם יתעדכן באותה שנייה
+    // 2. אם הבחור עדיין לא הקיש את התשובה שלו (חסר פרמטר vote), השרת מבקש אותה
+    if (!callData.vote) {
+        // שימוש בפקודת read לבקשת נתונים מהמשתמש ושליחתם בחזרה לשרת
+        return res.send('read=t-אנא הקישו את מספר התשובה שלכם=vote,no,1,1,7,Number,yes,no,*/');
+    }
+
+    // 3. יש לנו הצבעה! השרת קולט את הספרה שהוקשה ומשדר למסך באולם
+    console.log('New vote received from:', callData.ApiPhone, 'Vote:', callData.vote);
     io.emit('new_vote', callData);
 
-    // החזרת פקודת סיום לימות המשיח כדי לנתק את השיחה או להשמיע הודעה
+    // 4. סיום התהליך: השמעת תודה
     res.send('id_list_message=t-תודה על ההצבעה.&'); 
 });
 
@@ -33,7 +43,6 @@ app.get('/api/yemot', (req, res) => {
 io.on('connection', (socket) => {
     console.log('Screen connected:', socket.id);
     
-    // קליטת עדכון ניקוד שופטים מפאנל הניהול והעברתו למסך
     socket.on('update_judge_score', (data) => {
         io.emit('live_judge_update', data);
     });
@@ -43,7 +52,7 @@ io.on('connection', (socket) => {
     });
 });
 
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 10000;
 server.listen(PORT, () => {
     console.log(`Server is running on port ${PORT}`);
 });
