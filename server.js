@@ -15,7 +15,7 @@ const io = new Server(server, { cors: { origin: "*" } });
 
 // =========================================================
 //  "הראש הקליבער" - מבנה התוכנית:
-//  חלק א': שלב הבתים - 5 סיבובים, 8 בחורים בכל סיבוב, עולה אחד מכל סיבוב
+//  חלק א': שלב האודישנים - 5 סיבובים, 8 בחורים בכל סיבוב, עולה אחד מכל סיבוב
 //  גלגל ההצלה: הנופל עם הניקוד המשוקלל הגבוה ביותר מחלק א' חוזר (עולה שישי)
 //  חלק ב': חצי הגמר - 6 בחורים, שאלה פתוחה, 3 עולים לגמר
 //  חלק ג': הגמר הגדול - הכספת - 3 בחורים, הראשון שפותח את הכספת מנצח
@@ -31,20 +31,27 @@ let currentRoundTally = {}; // ספירת קולות לפי מקש, למשל { '
 
 // --- שלבי התוכנית ---
 const STAGE_TITLES = {
-    houses: 'שלב הבתים',
+    houses: 'שלב האודישן',
     rescue: 'גלגל ההצלה',
     semi: 'חצי הגמר - השאלה הפתוחה',
     final: 'הגמר הגדול - הכספת'
 };
 const TOTAL_HOUSE_ROUNDS = 5;
 let currentStage = 'houses';
-let currentRound = 1; // סיבוב נוכחי בשלב הבתים (1-5)
+let currentRound = 1;
 
 function getScreenTitle() {
     if (currentStage === 'houses') {
-        return `שלב הבתים • סיבוב ${currentRound} מתוך ${TOTAL_HOUSE_ROUNDS}`;
+        return `שלב האודישן • סיבוב ${currentRound} מתוך ${TOTAL_HOUSE_ROUNDS}`;
     }
     return STAGE_TITLES[currentStage];
+}
+
+function broadcastLiveTally() {
+    io.emit('screen_live_tally', {
+        tally: { ...currentRoundTally },
+        total: totalVotesCount
+    });
 }
 
 // --- מאגר המתמודדים ---
@@ -98,8 +105,9 @@ app.get('/api/yemot', (req, res) => {
     // שליפת פרטי הבחור מהאקסל (או סימונו כחריג אם אינו קיים)
     const voterInfo = votersList[phone] || { name: 'לא רשום', group: 'חריג' };
 
-    // שידור המספר המוחלט בלבד למסך האווירה
+    // שידור המספר המוחלט בלבד למסך האווירה + נתוני גרף חי (ללא שמות מתמודדים)
     io.emit('screen_vote_count_update', { count: totalVotesCount });
+    broadcastLiveTally();
 
     // שידור הנתונים המלאים אך ורק לפאנל הניהול
     io.emit('admin_vote_details', {
@@ -151,7 +159,9 @@ io.on('connection', (socket) => {
         screenTitle: getScreenTitle(),
         contestants: contestants,
         isOpen: isVotingOpen,
-        count: totalVotesCount
+        count: totalVotesCount,
+        tally: currentRoundTally,
+        total: totalVotesCount
     });
 
     // פתיחה/סגירה של הצבעת הקהל (קליקרים)
@@ -165,6 +175,7 @@ io.on('connection', (socket) => {
             totalVotesCount = 0;
             currentRoundTally = {};
             io.emit('screen_vote_count_update', { count: totalVotesCount });
+            broadcastLiveTally();
         }
         io.emit('admin_status_update', { isOpen: isVotingOpen });
 
@@ -215,7 +226,7 @@ io.on('connection', (socket) => {
     });
 
     // =========================================================
-    //  שלב הבתים - שקלול סיבוב והכרזת העולה
+    //  שלב האודישנים - שקלול סיבוב והכרזת העולה
     //  entries: [{ key, contestantId }] - עד 4 הבחורים שעברו את מבחן התוצאה
     //  judgePicks: [contestantId x4] - כל שופט נותן את ה-10% שלו לבחור אחד
     //  ניקוד סופי (מתוך 100) = חלק יחסי מקולות הקהל x60 + מספר שופטים x10
@@ -386,6 +397,7 @@ io.on('connection', (socket) => {
         totalVotesCount = 0;
         currentRoundTally = {};
         io.emit('screen_vote_count_update', { count: 0 });
+        broadcastLiveTally();
         io.emit('round_was_reset');
     });
 
@@ -396,20 +408,26 @@ io.on('connection', (socket) => {
         }
     });
 
-    // חיווי חי של הצבעת השופטים למסך הקהל - כמה שופטים כבר הזין המנחה (בלי לחשוף את הבחירה)
+    // חיווי חי של הצבעת השופטים למסך הקהל — שמות, מתמודדים וגרף 40%
     socket.on('admin_judge_progress', (data) => {
-        io.emit('screen_judge_progress', { count: Number(data.count) || 0, total: Number(data.total) || 4 });
+        io.emit('screen_judge_progress', {
+            count: Number(data.count) || 0,
+            total: Number(data.total) || 4,
+            votes: Array.isArray(data.votes) ? data.votes : [],
+            roundContestants: Array.isArray(data.roundContestants) ? data.roundContestants : []
+        });
     });
 
-    // שליטה בטיימר ספירה לאחור (60 שניות בבתים, 2 דקות בחצי הגמר)
+    // שליטה בטיימר ספירה לאחור — mode: 'writing' (כתיבה על הדף) | 'voting' (הצבעה)
     socket.on('admin_start_timer', (data) => {
         let seconds = data.seconds;
+        const mode = data.mode === 'writing' ? 'writing' : 'voting';
         clearInterval(timerInterval);
-        io.emit('screen_timer_update', { seconds: seconds });
+        io.emit('screen_timer_update', { seconds, mode });
 
         timerInterval = setInterval(() => {
             seconds--;
-            io.emit('screen_timer_update', { seconds: seconds });
+            io.emit('screen_timer_update', { seconds, mode });
             if (seconds <= 0) {
                 clearInterval(timerInterval);
             }
